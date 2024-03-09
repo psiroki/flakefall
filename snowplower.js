@@ -134,7 +134,7 @@ async function plowSnow() {
       let x = e.pageX * pageToPlayfield | 0;
       let y = e.pageY * pageToPlayfield | 0;
       if (x >= 1 && x < playfieldWidth - 1 && y >= 0 && y < playfieldHeight) {
-        let sat = 0.75 + Math.cos(angle / 180 / 4 * Math.PI) * 0.25;
+        let sat = (1 - 0.125) + Math.cos(angle / 180 / 4 * Math.PI) * 0.125;
         let color = hslToRgb(angle++, sat, 0.5).map((e, i) => e * 31 << (i * 5)).reduce((a, b) => a|b);
         let o = y * playfieldWidth + x;
         playfield[o] = color | color << 16;
