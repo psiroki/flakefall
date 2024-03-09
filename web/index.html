@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hóesés</title>
+    <style>
+      html, body { padding: 0; margin: 0; touch-action: none; background: black; overflow: hidden; }
+      canvas {
+        height: 100vh;
+      }
+      .fullscreen {
+        width: 32px;
+        height: 32px;
+        position: fixed;
+        right: 10px;
+        bottom: 10px;
+        opacity: 0.25;
+        border-radius: 50%;
+      }
+    </style>
+</head>
+<body>
+    <canvas id="snowfallCanvas" width="1280" height="720"></canvas>
+    <button class="fullscreen"></button>
+    <script defer src="snowplower.js"></script>
+</body>
+</html>
