@@ -1,5 +1,5 @@
-const playfieldWidth = 72*2;
-const playfieldHeight = 128*2;
+const playfieldWidth = 72;
+const playfieldHeight = 128;
 
 class LinearAllocator {
   constructor(buffer, baseAddress) {
