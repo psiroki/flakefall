@@ -35,6 +35,12 @@ function loopRender(fun, skipFrames) {
   requestAnimationFrame(looper);
 }
 
+function bytesToUint32(bytes) {
+  if (bytes instanceof Array) bytes = new Uint8Array(bytes);
+  let arr = new Uint32Array(bytes.buffer, bytes.byteOffset, 1);
+  return arr[0];
+}
+
 function hslToRgb(h, s, l) {
   const k = n => (n + h / 30) % 12;
   const a = s * Math.min(l, 1 - l);
@@ -43,9 +49,9 @@ function hslToRgb(h, s, l) {
   return [f(0), f(8), f(4)];
 }
 
-function createOffscreenCanvas(w, h) {
+function createCanvas(w, h, preferOffscreen) {
   let canvas;
-  if (window.OffscreenCanvas) {
+  if (preferOffscreen && window.OffscreenCanvas) {
     canvas = new OffscreenCanvas(w, h);
   } else {
     canvas = document.createElement("canvas");
@@ -65,16 +71,15 @@ async function plowSnow() {
   memory.grow(256); // 16 MB should be enough
 
   // Accessing the globals
-  const dataEnd = instance.exports.__data_end;
-  const globalBase = instance.exports.__global_base;
-  const heapBase = instance.exports.__heap_base;
-  const memoryBase = instance.exports.__memory_base;
-  const tableBase = instance.exports.__table_base;
+  const dataEnd = instance.exports.__data_end.value;
+  const globalBase = instance.exports.__global_base.value;
+  const heapBase = instance.exports.__heap_base.value;
+  const memoryBase = instance.exports.__memory_base.value;
+  const tableBase = instance.exports.__table_base.value;
 
-  const heap = new DataView(memory.buffer);
-  const allocator = new LinearAllocator(memory.buffer, instance.exports.__heap_base);
+  const allocator = new LinearAllocator(memory.buffer, heapBase);
   const [playfield, playfieldPtr] = allocator.allocateUint32(playfieldWidth * playfieldHeight);
-  const [pixels, pixelsPtr] = allocator.allocateUint32(playfieldWidth * playfieldHeight);
+  const [permutations, permutationsPtr] = allocator.allocateUint32(playfieldWidth * playfieldHeight);
 
   console.log('__data_end:', dataEnd);
   console.log('__global_base:', globalBase);
@@ -82,8 +87,8 @@ async function plowSnow() {
   console.log('__memory_base:', memoryBase);
   console.log('__table_base:', tableBase);
 
-  // Get the function named 'stepFrame' from the wasm module
   const stepFrame = instance.exports.stepFrame;
+  instance.exports.initPermutations(Date.now(), permutationsPtr, playfieldWidth, playfieldHeight);
   let frame = 0;
   const canvas = document.querySelector("canvas");
   let scale = 10;
@@ -91,20 +96,23 @@ async function plowSnow() {
   canvas.height = playfieldHeight * scale;
   canvas.style.imageRendering = "pixelated";
   const ctx = canvas.getContext("2d", { willReadFrequently: false });
+  ctx.globalCompositeOperation = "copy";
   ctx.imageSmoothingEnabled = false;
-  const [lowRezCanvas, lowRezCtx] = createOffscreenCanvas(playfieldWidth, playfieldHeight);
+  const [lowRezCanvas, lowRezCtx] = createCanvas(playfieldWidth, playfieldHeight);
+  lowRezCtx.globalCompositeOperation = "copy";
+  let dirtyPlayfield = false;
   const nextFrame = () => {
     try {
-      stepFrame(frame++, playfieldPtr, playfieldWidth, playfieldHeight, pixelsPtr);
+      stepFrame(frame++, playfieldPtr, playfieldWidth, playfieldHeight, permutationsPtr);
+      dirtyPlayfield = true;
     } catch (e) {
       throw e;
     }
-    const image = new ImageData(new Uint8ClampedArray(pixels.buffer, pixels.byteOffset, pixels.byteLength), playfieldWidth, playfieldHeight);
+    const image = new ImageData(new Uint8ClampedArray(playfield.buffer, playfield.byteOffset, playfield.byteLength), playfieldWidth, playfieldHeight);
     lowRezCtx.putImageData(image, 0, 0);
     ctx.drawImage(lowRezCanvas, 0, 0, canvas.width, canvas.height);
   };
 
-  let down = false;
   let angle = 0;
   let fullscreen = false;
   document.addEventListener("fullscreenchange", _ => {
@@ -124,17 +132,39 @@ async function plowSnow() {
     rotated = window.innerWidth > window.innerHeight;
     canvas.classList.toggle("horizontal", rotated);
   }
+  function savePlayfield() {
+    if (!dirtyPlayfield) return;
+    let dataUrl = lowRezCanvas.toDataURL("image/png");
+    sessionStorage.setItem("flakefield", dataUrl);
+    dirtyPlayfield = false;
+  }
+  function loadPlayfield() {
+    let url = sessionStorage.getItem("flakefield");
+    if (url) {
+      let image = new Image();
+      image.onload = () => {
+        lowRezCtx.drawImage(image, 0, 0);
+        let imageData = lowRezCtx.getImageData(0, 0, playfieldWidth, playfieldHeight);
+        new Uint8Array(playfield.buffer, playfield.byteOffset, playfield.byteLength).set(imageData.data);
+        console.log("Initialized from "+url.substring(0, 32)+"...");
+      };
+      image.src = url;
+    }
+  }
   window.addEventListener("resize", syncResize);
+  window.addEventListener("pagehide", savePlayfield);
+  window.addEventListener("visibilitychange", _ => {
+    if (document.visibilityState === "hidden") {
+      savePlayfield();
+    } else {
+      if (location.hostname === "localhost") {
+        // it is not ready yet, so it
+        // only works in local testing
+        loadPlayfield();
+      }
+    }
+  });
   syncResize();
-  canvas.addEventListener("pointerdown", e => {
-    if (e.isPrimary) down = true;
-  });
-  document.addEventListener("pointerup", _ => {
-    down = false;
-  });
-  document.addEventListener("pointercancel", _ => {
-    down = false;
-  });
   canvas.addEventListener("pointermove", e => {
     if (e.pressure > 0.25) {
       let pageToPlayfield = playfieldWidth / canvas.offsetWidth;
@@ -149,9 +179,10 @@ async function plowSnow() {
       y = y * pageToPlayfield | 0;
       if (x >= 1 && x < playfieldWidth - 1 && y >= 0 && y < playfieldHeight) {
         let sat = (1 - 0.125) + Math.cos(angle / 180 / 4 * Math.PI) * 0.125;
-        let color = hslToRgb(angle++, sat, 0.5).map((e, i) => e * 31 << (i * 5)).reduce((a, b) => a|b);
+        let color = bytesToUint32(hslToRgb(angle++, sat, 0.5)
+            .map(e => e * 255).concat([255]));
         let o = y * playfieldWidth + x;
-        playfield[o] = color | color << 16;
+        playfield[o] = color;
       }
     }
   });
