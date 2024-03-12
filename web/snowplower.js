@@ -143,9 +143,11 @@ async function plowSnow() {
       valuesUsed = new Uint32Array(valuesUsed);
       bytes = new Uint8Array(playfield.length + 1 + 4*valuesUsed.length);
       bytes[0] = valuesUsed.length;
-      bytes.set(new Uint8Array(valuesUsed.buffer), 1);
+      let paletteBytes = new Uint8Array(valuesUsed.buffer);
+      bytes.set(paletteBytes, 1);
+      let offset = 1 + paletteBytes.length;
       for (let i = 0; i < playfield.length; ++i) {
-        bytes[i + 1] = lookup.get(playfield[i]);
+        bytes[i + offset] = lookup.get(playfield[i]);
       }
     } else {
       bytes = new Uint8Array(playfield.byteLength + 1);
@@ -160,8 +162,8 @@ async function plowSnow() {
     if (b64) {
       let bytes = new Uint8Array(Array.from(window.atob(b64)).map(e => e.charCodeAt(0)));
       if (bytes[0] > 0) {
-        let palette = new Uint32Array(bytes[0] * 4);
-        new Uint8Array(palette.buffer, palette.byteOffset, palette.byteLength).set(bytes.subarray(1, bytes[0]*4 + 1));
+        let palette = new Uint32Array(bytes[0]);
+        new Uint8Array(palette.buffer).set(bytes.subarray(1, palette.byteLength + 1));
         let refs = bytes.subarray(1 + palette.length * 4);
         for (let i = 0; i < refs.length; ++i) {
           playfield[i] = palette[refs[i]];
