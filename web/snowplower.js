@@ -71,14 +71,15 @@ async function plowSnow() {
   memory.grow(256); // 16 MB should be enough
 
   // Accessing the globals
-  const dataEnd = instance.exports.__data_end;
-  const globalBase = instance.exports.__global_base;
-  const heapBase = instance.exports.__heap_base;
-  const memoryBase = instance.exports.__memory_base;
-  const tableBase = instance.exports.__table_base;
+  const dataEnd = instance.exports.__data_end.value;
+  const globalBase = instance.exports.__global_base.value;
+  const heapBase = instance.exports.__heap_base.value;
+  const memoryBase = instance.exports.__memory_base.value;
+  const tableBase = instance.exports.__table_base.value;
 
-  const allocator = new LinearAllocator(memory.buffer, instance.exports.__heap_base);
+  const allocator = new LinearAllocator(memory.buffer, heapBase);
   const [playfield, playfieldPtr] = allocator.allocateUint32(playfieldWidth * playfieldHeight);
+  const [permutations, permutationsPtr] = allocator.allocateUint32(playfieldWidth * playfieldHeight);
 
   console.log('__data_end:', dataEnd);
   console.log('__global_base:', globalBase);
@@ -87,6 +88,7 @@ async function plowSnow() {
   console.log('__table_base:', tableBase);
 
   const stepFrame = instance.exports.stepFrame;
+  instance.exports.initPermutations(Date.now(), permutationsPtr, playfieldWidth, playfieldHeight);
   let frame = 0;
   const canvas = document.querySelector("canvas");
   let scale = 10;
@@ -101,7 +103,7 @@ async function plowSnow() {
   let dirtyPlayfield = false;
   const nextFrame = () => {
     try {
-      stepFrame(frame++, playfieldPtr, playfieldWidth, playfieldHeight);
+      stepFrame(frame++, playfieldPtr, playfieldWidth, playfieldHeight, permutationsPtr);
       dirtyPlayfield = true;
     } catch (e) {
       throw e;
