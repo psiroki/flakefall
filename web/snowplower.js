@@ -93,9 +93,11 @@ async function plowSnow() {
   const ctx = canvas.getContext("2d", { willReadFrequently: false });
   ctx.imageSmoothingEnabled = false;
   const [lowRezCanvas, lowRezCtx] = createOffscreenCanvas(playfieldWidth, playfieldHeight);
+  let dirtyPlayfield = false;
   const nextFrame = () => {
     try {
       stepFrame(frame++, playfieldPtr, playfieldWidth, playfieldHeight, pixelsPtr);
+      dirtyPlayfield = true;
     } catch (e) {
       throw e;
     }
@@ -104,7 +106,6 @@ async function plowSnow() {
     ctx.drawImage(lowRezCanvas, 0, 0, canvas.width, canvas.height);
   };
 
-  let down = false;
   let angle = 0;
   let fullscreen = false;
   document.addEventListener("fullscreenchange", _ => {
@@ -124,17 +125,66 @@ async function plowSnow() {
     rotated = window.innerWidth > window.innerHeight;
     canvas.classList.toggle("horizontal", rotated);
   }
+  function savePlayfield() {
+    if (!dirtyPlayfield) return;
+    let bytes;
+    let valuesUsed = new Set(playfield);
+    if (valuesUsed.size <= 255) {
+      if (valuesUsed.size === 1) {
+        valuesUsed.add(0xffffffff);
+      }
+      valuesUsed = Array.from(valuesUsed);
+      let blackSwappedWith = valuesUsed.indexOf(0);
+      if (blackSwappedWith > 0) {
+        valuesUsed[blackSwappedWith] = valuesUsed[0];
+        valuesUsed[0] = 0;
+      }
+      let lookup = new Map(valuesUsed.map((e, i) => [e, i]));
+      valuesUsed = new Uint32Array(valuesUsed);
+      bytes = new Uint8Array(playfield.length + 1 + 4*valuesUsed.length);
+      bytes[0] = valuesUsed.length;
+      bytes.set(new Uint8Array(valuesUsed.buffer), 1);
+      for (let i = 0; i < playfield.length; ++i) {
+        bytes[i + 1] = lookup.get(playfield[i]);
+      }
+    } else {
+      bytes = new Uint8Array(playfield.byteLength + 1);
+      bytes[0] = 0;
+      bytes.set(new Uint8Array(playfield.buffer, playfield.byteOffset, playfield.byteLength), 1);
+    }
+    sessionStorage.setItem("flakefield", window.btoa(String.fromCharCode(...bytes)));
+    dirtyPlayfield = false;
+  }
+  function loadPlayfield() {
+    let b64 = sessionStorage.getItem("flakefield");
+    if (b64) {
+      let bytes = new Uint8Array(Array.from(window.atob(b64)).map(e => e.charCodeAt(0)));
+      if (bytes[0] > 0) {
+        let palette = new Uint32Array(bytes[0] * 4);
+        new Uint8Array(palette.buffer, palette.byteOffset, palette.byteLength).set(bytes.subarray(1, bytes[0]*4 + 1));
+        let refs = bytes.subarray(1 + palette.length * 4);
+        for (let i = 0; i < refs.length; ++i) {
+          playfield[i] = palette[refs[i]];
+        }
+      } else {
+        new Uint8Array(playfield.buffer, playfield.byteOffset, playfield.byteLength).set(bytes.subarray(1));
+      }
+    }
+  }
   window.addEventListener("resize", syncResize);
+  window.addEventListener("pagehide", savePlayfield);
+  window.addEventListener("visibilitychange", _ => {
+    if (document.visibilityState === "hidden") {
+      savePlayfield();
+    } else {
+      if (location.hostname === "localhost") {
+        // it is not ready yet, so it
+        // only works in local testing
+        loadPlayfield();
+      }
+    }
+  });
   syncResize();
-  canvas.addEventListener("pointerdown", e => {
-    if (e.isPrimary) down = true;
-  });
-  document.addEventListener("pointerup", _ => {
-    down = false;
-  });
-  document.addEventListener("pointercancel", _ => {
-    down = false;
-  });
   canvas.addEventListener("pointermove", e => {
     if (e.pressure > 0.25) {
       let pageToPlayfield = playfieldWidth / canvas.offsetWidth;
