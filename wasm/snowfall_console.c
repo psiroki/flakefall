@@ -6,16 +6,16 @@
 int main() {
   const int w = 32;
   const int h = 32;
-  uint32_t playfield[w * h], pixels[w * h];
+  uint32_t playfield[w * h];
   for (int i = w*h; i > 0; --i) {
     playfield[i] = i < w ? 0x7fff7fff : 0;
   }
   printf("\x1b[2J");
   for (int frame = 0; frame <= 1000; ++frame) {
     if (frame > 0) usleep(100000);
-    stepFrame(frame, playfield, w, h, pixels);
+    stepFrame(frame, playfield, w, h);
     printf("\x1b[H");
-    const uint32_t *p = pixels;
+    const uint32_t *p = playfield;
     for (int y = 0; y < h; ++y) {
       for (int x = 0; x < w; ++x) {
         int sample = *p++ & 0xffff;
