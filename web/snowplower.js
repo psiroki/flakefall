@@ -157,11 +157,7 @@ async function plowSnow() {
     if (document.visibilityState === "hidden") {
       savePlayfield();
     } else {
-      if (location.hostname === "localhost") {
-        // it is not ready yet, so it
-        // only works in local testing
-        loadPlayfield();
-      }
+      loadPlayfield();
     }
   });
   syncResize();
